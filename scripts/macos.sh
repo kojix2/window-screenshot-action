@@ -1,32 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-APP_NAME="${1:?app binary name is required}"
-OUTPUT_FILE="${2:?output filename is required}"
-WINDOW_HELPER="${3:?window helper path is required}"
-
-echo "Starting macOS window screenshot process for $APP_NAME"
-
-APP_PID=
-trap 'if [ -n "$APP_PID" ]; then kill "$APP_PID" 2>/dev/null || true; fi' EXIT
-
-# Launch the application directly so its PID owns the window.
-echo "Launching application: ./$APP_NAME"
-"./$APP_NAME" &
-APP_PID=$!
-echo "Application launched with PID: $APP_PID"
-
-# Find the on-screen window id used by screencapture -l.
-echo "Waiting for window to appear..."
-WINDOW_ID=$("$WINDOW_HELPER" "$APP_PID") || {
-  echo "$WINDOW_ID"
-  exit 1
+# shellcheck source=scripts/common.sh
+source "$(dirname "$0")/common.sh"
+app=${1:?executable path is required}
+output=${2:?output path is required}
+helper=${3:?window helper path is required}
+pid='' temp_dir=''
+cleanup() {
+  stop_process "$pid"
+  [ -z "$temp_dir" ] || rm -rf "$temp_dir"
 }
-echo "Window id: $WINDOW_ID"
-echo "Capturing with screencapture -l $WINDOW_ID -> $OUTPUT_FILE"
-mkdir -p "$(dirname "$OUTPUT_FILE")"
-sleep 1
-screencapture -x -o -t png -l"$WINDOW_ID" "$OUTPUT_FILE"
-test -s "$OUTPUT_FILE"
-
-echo "macOS window screenshot process completed successfully"
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+mkdir -p "./$(dirname "$output")"
+temp_dir=$(mktemp -d "./$(dirname "$output")/.window-screenshot.XXXXXX")
+"./$app" &
+pid=$!
+window=$("$helper" "$pid" "${WINDOW_TIMEOUT:-15}")
+sleep "${CAPTURE_DELAY:-1}"
+kill -0 "$pid" 2>/dev/null || { echo "Application exited before capture: $app" >&2; exit 1; }
+screencapture -x -o -t png -l"$window" "$temp_dir/capture.png"
+test -s "$temp_dir/capture.png"
+mv -f "$temp_dir/capture.png" "./$output"
+printf 'Saved window screenshot: %s\n' "$output"

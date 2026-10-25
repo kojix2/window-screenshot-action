@@ -1,7 +1,17 @@
 import CoreGraphics
 import Foundation
+import Darwin
 
-let appPid = Int(CommandLine.arguments[1]) ?? 0
+func fail(_ message: String) -> Never {
+  FileHandle.standardError.write(Data((message + "\n").utf8))
+  exit(1)
+}
+
+guard CommandLine.arguments.count == 3,
+      let appPid = Int32(CommandLine.arguments[1]), appPid > 0,
+      let timeout = Double(CommandLine.arguments[2]), timeout >= 1, timeout <= 300 else {
+  fail("Usage: window <positive PID> <timeout seconds: 1..300>")
+}
 
 struct Candidate {
   let layer: Int
@@ -35,13 +45,15 @@ func doubleValue(_ value: Any?, default defaultValue: Double = 0) -> Double {
   return defaultValue
 }
 
-for _ in 0..<20 {
+let deadline = ProcessInfo.processInfo.systemUptime + timeout
+while ProcessInfo.processInfo.systemUptime < deadline {
+  if kill(appPid, 0) != 0 { fail("Application exited before creating a window (PID \(appPid))") }
   let info = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
   var candidates: [Candidate] = []
 
   for window in info {
     let ownerPid = intValue(window[kCGWindowOwnerPID as String])
-    if ownerPid != appPid {
+    if ownerPid != Int(appPid) {
       continue
     }
 
@@ -74,5 +86,4 @@ for _ in 0..<20 {
   Thread.sleep(forTimeInterval: 0.5)
 }
 
-print("ERROR: CoreGraphics window not found")
-exit(1)
+fail("CoreGraphics window not found for PID \(appPid) within \(timeout)s. Check the GUI session and Screen Recording permission.")

@@ -1,21 +1,42 @@
 name: Capture native windows
 description: Launch applications and capture their windows on Linux, Windows, and macOS
+author: kojix2
+branding:
+  icon: camera
+  color: blue
 
 inputs:
   os:
     description: ubuntu, windows, or macos
     required: true
   app-names:
-    description: Space-separated executable paths relative to the workspace
+    description: Whitespace-separated executable paths relative to the workspace (no arguments or spaces in paths)
     required: true
   output-files:
-    description: Optional space-separated PNG paths in the same order as app-names
+    description: Optional whitespace-separated PNG paths in the same order as app-names
     required: false
     default: ''
   output-pattern:
     description: PNG path pattern used when output-files is omitted; {name} is the executable basename without .exe and {os} is the requested OS
     required: false
     default: '{name}.png'
+
+  window-timeout:
+    description: Seconds to wait for each application window (integer from 1 to 300)
+    required: false
+    default: '15'
+  capture-delay:
+    description: Seconds to wait after finding a window before capturing it (integer from 0 to 60)
+    required: false
+    default: '1'
+
+outputs:
+  files:
+    description: Newline-separated workspace-relative paths of captured PNGs; set only after all captures succeed
+    value: ${{ steps.linux.outputs.files || steps.windows.outputs.files || steps.macos.outputs.files }}
+  count:
+    description: Number of captured PNGs; set only after all captures succeed
+    value: ${{ steps.linux.outputs.count || steps.windows.outputs.count || steps.macos.outputs.count }}
 
 runs:
   using: composite
@@ -31,69 +52,46 @@ runs:
         esac
 
     - name: Capture on Linux
+      id: linux
       if: inputs.os == 'ubuntu'
       shell: bash
+      working-directory: ${{ github.workspace }}
       env:
         ACTION_PATH: ${{ github.action_path }}
         APP_NAMES: ${{ inputs.app-names }}
         OUTPUT_FILES: ${{ inputs.output-files }}
         OUTPUT_PATTERN: ${{ inputs.output-pattern }}
         REQUESTED_OS: ${{ inputs.os }}
-      run: |
-        xvfb-run -a -s '-screen 0 1280x800x24' bash <<'BASH'
-        set -euo pipefail
-        export NO_AT_BRIDGE=1 GDK_BACKEND=x11
-        openbox &
-        wm_pid=$!
-        trap 'kill "$wm_pid" 2>/dev/null || true; wait "$wm_pid" 2>/dev/null || true' EXIT
-        sleep 2
-        kill -0 "$wm_pid"
-        source "$ACTION_PATH/scripts/inputs.sh"
-        for i in "${!apps[@]}"; do
-          bash "$ACTION_PATH/scripts/linux.sh" "${apps[$i]}" "${outputs[$i]}"
-        done
-        BASH
+        WINDOW_TIMEOUT: ${{ inputs.window-timeout }}
+        CAPTURE_DELAY: ${{ inputs.capture-delay }}
+      run: bash "$ACTION_PATH/scripts/run-unix.sh"
 
     - name: Capture on Windows
+      id: windows
       if: inputs.os == 'windows'
       shell: pwsh
+      working-directory: ${{ github.workspace }}
       env:
         ACTION_PATH: ${{ github.action_path }}
         APP_NAMES: ${{ inputs.app-names }}
         OUTPUT_FILES: ${{ inputs.output-files }}
         OUTPUT_PATTERN: ${{ inputs.output-pattern }}
         REQUESTED_OS: ${{ inputs.os }}
-      run: |
-        $apps = @($env:APP_NAMES -split '\s+' | Where-Object { $_ })
-        $outputs = @($env:OUTPUT_FILES -split '\s+' | Where-Object { $_ })
-        if ($apps.Count -eq 0) { throw 'app-names must be nonempty' }
-        if ($outputs.Count -eq 0) {
-          $outputs = @($apps | ForEach-Object {
-            $name = [System.IO.Path]::GetFileName($_) -replace '(?i)\.exe$', ''
-            $env:OUTPUT_PATTERN.Replace('{name}', $name).Replace('{os}', $env:REQUESTED_OS)
-          })
-        }
-        if ($apps.Count -ne $outputs.Count) { throw 'app-names and output-files must have the same length' }
-        if (@($outputs | Select-Object -Unique).Count -ne $outputs.Count) { throw 'Output paths must be unique' }
-        for ($i = 0; $i -lt $apps.Count; $i++) {
-          & "$env:ACTION_PATH/scripts/windows.ps1" -AppName $apps[$i] -OutputFile $outputs[$i]
-        }
+        WINDOW_TIMEOUT: ${{ inputs.window-timeout }}
+        CAPTURE_DELAY: ${{ inputs.capture-delay }}
+      run: '& "$env:ACTION_PATH/scripts/run-windows.ps1"'
 
     - name: Capture on macOS
+      id: macos
       if: inputs.os == 'macos'
       shell: bash
+      working-directory: ${{ github.workspace }}
       env:
         ACTION_PATH: ${{ github.action_path }}
         APP_NAMES: ${{ inputs.app-names }}
         OUTPUT_FILES: ${{ inputs.output-files }}
         OUTPUT_PATTERN: ${{ inputs.output-pattern }}
         REQUESTED_OS: ${{ inputs.os }}
-      run: |
-        set -euo pipefail
-        source "$ACTION_PATH/scripts/inputs.sh"
-        helper_dir=$(mktemp -d)
-        trap 'rm -rf "$helper_dir"' EXIT
-        swiftc "$ACTION_PATH/scripts/window.swift" -o "$helper_dir/window"
-        for i in "${!apps[@]}"; do
-          bash "$ACTION_PATH/scripts/macos.sh" "${apps[$i]}" "${outputs[$i]}" "$helper_dir/window"
-        done
+        WINDOW_TIMEOUT: ${{ inputs.window-timeout }}
+        CAPTURE_DELAY: ${{ inputs.capture-delay }}
+      run: bash "$ACTION_PATH/scripts/run-unix.sh"
