@@ -1,0 +1,73 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu
+            runner: ubuntu-latest
+            app: smoke
+          - os: windows
+            runner: windows-latest
+            app: smoke.exe
+          - os: macos
+            runner: macos-latest
+            app: smoke
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare Linux test window
+        if: matrix.os == 'ubuntu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y x11-apps xvfb openbox wmctrl x11-utils imagemagick
+          printf '#!/bin/sh\nexec xmessage "Screenshot smoke test"\n' > smoke
+          chmod +x smoke
+      - name: Prepare Windows test window
+        if: matrix.os == 'windows'
+        shell: powershell
+        run: |
+          $source = @'
+          using System;
+          using System.Windows.Forms;
+          class Smoke {
+            [STAThread] public static void Main() {
+              Application.Run(new Form { Text = "Screenshot smoke test", Width = 400, Height = 300 });
+            }
+          }
+          '@
+          Add-Type -TypeDefinition $source -OutputAssembly "$PWD\smoke.exe" -OutputType WindowsApplication -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll
+      - name: Prepare macOS test window
+        if: matrix.os == 'macos'
+        run: |
+          cat > smoke.swift <<'SWIFT'
+          import AppKit
+          let app = NSApplication.shared
+          app.setActivationPolicy(.regular)
+          let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+          window.title = "Screenshot smoke test"
+          window.makeKeyAndOrderFront(nil)
+          app.activate(ignoringOtherApps: true)
+          app.run()
+          SWIFT
+          swiftc smoke.swift -o smoke
+      - uses: ./
+        with:
+          os: ${{ matrix.os }}
+          app-names: ${{ matrix.app }}
+          output-files: smoke-${{ matrix.os }}.png
+      - uses: actions/upload-artifact@v7
+        with:
+          name: screenshot-${{ matrix.os }}
+          path: smoke-${{ matrix.os }}.png
+          if-no-files-found: error

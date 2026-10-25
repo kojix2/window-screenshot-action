@@ -1,0 +1,72 @@
+name: Capture native windows
+description: Launch applications and capture their windows on Linux, Windows, and macOS
+
+inputs:
+  os:
+    description: ubuntu, windows, or macos
+    required: true
+  app-names:
+    description: Space-separated executable paths relative to the workspace
+    required: true
+  output-files:
+    description: Space-separated PNG paths in the same order as app-names
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Capture on Linux
+      if: inputs.os == 'ubuntu'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        APP_NAMES: ${{ inputs.app-names }}
+        OUTPUT_FILES: ${{ inputs.output-files }}
+      run: |
+        set -euo pipefail
+        export DISPLAY=:99 NO_AT_BRIDGE=1
+        Xvfb :99 -screen 0 1280x800x24 -ac &
+        xvfb_pid=$!
+        wm_pid=
+        trap 'kill "$wm_pid" "$xvfb_pid" 2>/dev/null || true' EXIT
+        sleep 2
+        openbox &
+        wm_pid=$!
+        sleep 2
+        read -r -a apps <<< "$APP_NAMES"
+        read -r -a outputs <<< "$OUTPUT_FILES"
+        [ "${#apps[@]}" -gt 0 ] && [ "${#apps[@]}" -eq "${#outputs[@]}" ]
+        for i in "${!apps[@]}"; do
+          bash "$ACTION_PATH/scripts/linux.sh" "${apps[$i]}" "${outputs[$i]}"
+        done
+
+    - name: Capture on Windows
+      if: inputs.os == 'windows'
+      shell: pwsh
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        APP_NAMES: ${{ inputs.app-names }}
+        OUTPUT_FILES: ${{ inputs.output-files }}
+      run: |
+        $apps = @($env:APP_NAMES -split '\s+' | Where-Object { $_ })
+        $outputs = @($env:OUTPUT_FILES -split '\s+' | Where-Object { $_ })
+        if ($apps.Count -eq 0 -or $apps.Count -ne $outputs.Count) { throw 'app-names and output-files must be nonempty and have the same length' }
+        for ($i = 0; $i -lt $apps.Count; $i++) {
+          & "$env:ACTION_PATH/scripts/windows.ps1" -AppName $apps[$i] -OutputFile $outputs[$i]
+        }
+
+    - name: Capture on macOS
+      if: inputs.os == 'macos'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        APP_NAMES: ${{ inputs.app-names }}
+        OUTPUT_FILES: ${{ inputs.output-files }}
+      run: |
+        set -euo pipefail
+        read -r -a apps <<< "$APP_NAMES"
+        read -r -a outputs <<< "$OUTPUT_FILES"
+        [ "${#apps[@]}" -gt 0 ] && [ "${#apps[@]}" -eq "${#outputs[@]}" ]
+        for i in "${!apps[@]}"; do
+          bash "$ACTION_PATH/scripts/macos.sh" "${apps[$i]}" "${outputs[$i]}"
+        done
