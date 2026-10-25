@@ -6,7 +6,9 @@ fail() { printf '%s\n' "$*" >&2; exit 1; }
 validate_integer() {
   local value=$1 minimum=$2 maximum=$3 label=$4
   [[ "$value" =~ ^(0|[1-9][0-9]{0,2})$ ]] || fail "$label must be an integer from $minimum to $maximum"
-  [ "$value" -ge "$minimum" ] && [ "$value" -le "$maximum" ] || fail "$label must be an integer from $minimum to $maximum"
+  if [ "$value" -lt "$minimum" ] || [ "$value" -gt "$maximum" ]; then
+    fail "$label must be an integer from $minimum to $maximum"
+  fi
 }
 
 # Normalize aliases before checking duplicates. Paths are workspace-relative.
@@ -45,7 +47,9 @@ IFS=$' \t' read -r -a outputs <<< "$flat_outputs"
 
 for i in "${!apps[@]}"; do
   apps[i]=$(normalize_path "${apps[$i]}")
-  [ -f "./${apps[$i]}" ] && [ -x "./${apps[$i]}" ] || fail "Executable not found or not executable: ${apps[$i]}"
+  if [ ! -f "./${apps[$i]}" ] || [ ! -x "./${apps[$i]}" ]; then
+    fail "Executable not found or not executable: ${apps[$i]}"
+  fi
 done
 
 if [ -z "${outputs[0]:-}" ]; then
