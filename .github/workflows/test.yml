@@ -19,12 +19,15 @@ jobs:
           - os: ubuntu
             runner: ubuntu-latest
             app: smoke
+            app2: smoke2
           - os: windows
             runner: windows-latest
             app: smoke.exe
+            app2: smoke2.exe
           - os: macos
             runner: macos-latest
             app: smoke
+            app2: smoke2
     steps:
       - uses: actions/checkout@v7
       - name: Prepare Linux test window
@@ -48,6 +51,7 @@ jobs:
           C
           read -r -a gtk_flags <<< "$(pkg-config --cflags --libs gtk+-3.0)"
           cc smoke.c -o smoke "${gtk_flags[@]}"
+          cp smoke smoke2
       - name: Prepare Windows test window
         if: matrix.os == 'windows'
         shell: powershell
@@ -68,6 +72,7 @@ jobs:
           }
           '@
           Add-Type -TypeDefinition $source -OutputAssembly "$PWD\smoke.exe" -OutputType WindowsApplication -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll
+          Copy-Item smoke.exe smoke2.exe
           (Start-Process .\smoke.exe -ArgumentList overlay -PassThru).Id | Set-Content overlay.pid
       - name: Prepare macOS test window
         if: matrix.os == 'macos'
@@ -83,17 +88,24 @@ jobs:
           app.run()
           SWIFT
           swiftc smoke.swift -o smoke
+          cp smoke smoke2
       - uses: ./
         with:
           os: ${{ matrix.os }}
-          app-names: ${{ matrix.app }} ${{ matrix.app }}
-          output-files: screenshots/first.png screenshots/second.png
+          app-names: ${{ matrix.app }} ${{ matrix.app2 }}
+          output-pattern: screenshots/{name}-{os}.png
+      - name: Verify explicit output filename remains supported
+        uses: ./
+        with:
+          os: ${{ matrix.os }}
+          app-names: ${{ matrix.app }}
+          output-files: screenshots/explicit.png
       - name: Verify PNG dimensions
         shell: bash
         run: |
           python - <<'PY'
           import pathlib, struct
-          for name in ('first', 'second'):
+          for name in ('smoke-${{ matrix.os }}', 'smoke2-${{ matrix.os }}', 'explicit'):
               data = pathlib.Path(f'screenshots/{name}.png').read_bytes()
               assert data[:8] == b'\x89PNG\r\n\x1a\n'
               width, height = struct.unpack('>II', data[16:24])
@@ -120,6 +132,14 @@ jobs:
           os: ${{ matrix.os }}
           app-names: ''
           output-files: ''
+      - name: Reject duplicate output paths
+        id: duplicate
+        continue-on-error: true
+        uses: ./
+        with:
+          os: ${{ matrix.os }}
+          app-names: ${{ matrix.app }} ${{ matrix.app }}
+          output-pattern: screenshots/{name}.png
       - name: Reject invalid output destination on Windows
         if: matrix.os == 'windows'
         id: invalid_output
@@ -150,8 +170,9 @@ jobs:
         shell: bash
         env:
           EMPTY_OUTCOME: ${{ steps.empty.outcome }}
+          DUPLICATE_OUTCOME: ${{ steps.duplicate.outcome }}
           UNSUPPORTED_OUTCOME: ${{ steps.unsupported.outcome }}
-        run: test "$EMPTY_OUTCOME" = failure && test "$UNSUPPORTED_OUTCOME" = failure
+        run: test "$EMPTY_OUTCOME" = failure && test "$DUPLICATE_OUTCOME" = failure && test "$UNSUPPORTED_OUTCOME" = failure
       - name: Stop Windows overlay
         if: always() && matrix.os == 'windows'
         shell: pwsh

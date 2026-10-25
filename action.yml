@@ -9,8 +9,13 @@ inputs:
     description: Space-separated executable paths relative to the workspace
     required: true
   output-files:
-    description: Space-separated PNG paths in the same order as app-names
-    required: true
+    description: Optional space-separated PNG paths in the same order as app-names
+    required: false
+    default: ''
+  output-pattern:
+    description: PNG path pattern used when output-files is omitted; {name} is the executable basename without .exe and {os} is the requested OS
+    required: false
+    default: '{name}.png'
 
 runs:
   using: composite
@@ -32,6 +37,8 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         APP_NAMES: ${{ inputs.app-names }}
         OUTPUT_FILES: ${{ inputs.output-files }}
+        OUTPUT_PATTERN: ${{ inputs.output-pattern }}
+        REQUESTED_OS: ${{ inputs.os }}
       run: |
         xvfb-run -a -s '-screen 0 1280x800x24' bash <<'BASH'
         set -euo pipefail
@@ -41,12 +48,7 @@ runs:
         trap 'kill "$wm_pid" 2>/dev/null || true; wait "$wm_pid" 2>/dev/null || true' EXIT
         sleep 2
         kill -0 "$wm_pid"
-        read -r -a apps <<< "$APP_NAMES"
-        read -r -a outputs <<< "$OUTPUT_FILES"
-        if [ "${#apps[@]}" -eq 0 ] || [ "${#apps[@]}" -ne "${#outputs[@]}" ]; then
-          echo 'app-names and output-files must be nonempty and have the same length' >&2
-          exit 1
-        fi
+        source "$ACTION_PATH/scripts/inputs.sh"
         for i in "${!apps[@]}"; do
           bash "$ACTION_PATH/scripts/linux.sh" "${apps[$i]}" "${outputs[$i]}"
         done
@@ -59,10 +61,20 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         APP_NAMES: ${{ inputs.app-names }}
         OUTPUT_FILES: ${{ inputs.output-files }}
+        OUTPUT_PATTERN: ${{ inputs.output-pattern }}
+        REQUESTED_OS: ${{ inputs.os }}
       run: |
         $apps = @($env:APP_NAMES -split '\s+' | Where-Object { $_ })
         $outputs = @($env:OUTPUT_FILES -split '\s+' | Where-Object { $_ })
-        if ($apps.Count -eq 0 -or $apps.Count -ne $outputs.Count) { throw 'app-names and output-files must be nonempty and have the same length' }
+        if ($apps.Count -eq 0) { throw 'app-names must be nonempty' }
+        if ($outputs.Count -eq 0) {
+          $outputs = @($apps | ForEach-Object {
+            $name = [System.IO.Path]::GetFileName($_) -replace '(?i)\.exe$', ''
+            $env:OUTPUT_PATTERN.Replace('{name}', $name).Replace('{os}', $env:REQUESTED_OS)
+          })
+        }
+        if ($apps.Count -ne $outputs.Count) { throw 'app-names and output-files must have the same length' }
+        if (@($outputs | Select-Object -Unique).Count -ne $outputs.Count) { throw 'Output paths must be unique' }
         for ($i = 0; $i -lt $apps.Count; $i++) {
           & "$env:ACTION_PATH/scripts/windows.ps1" -AppName $apps[$i] -OutputFile $outputs[$i]
         }
@@ -74,14 +86,14 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         APP_NAMES: ${{ inputs.app-names }}
         OUTPUT_FILES: ${{ inputs.output-files }}
+        OUTPUT_PATTERN: ${{ inputs.output-pattern }}
+        REQUESTED_OS: ${{ inputs.os }}
       run: |
         set -euo pipefail
-        read -r -a apps <<< "$APP_NAMES"
-        read -r -a outputs <<< "$OUTPUT_FILES"
-        if [ "${#apps[@]}" -eq 0 ] || [ "${#apps[@]}" -ne "${#outputs[@]}" ]; then
-          echo 'app-names and output-files must be nonempty and have the same length' >&2
-          exit 1
-        fi
+        source "$ACTION_PATH/scripts/inputs.sh"
+        helper_dir=$(mktemp -d)
+        trap 'rm -rf "$helper_dir"' EXIT
+        swiftc "$ACTION_PATH/scripts/window.swift" -o "$helper_dir/window"
         for i in "${!apps[@]}"; do
-          bash "$ACTION_PATH/scripts/macos.sh" "${apps[$i]}" "${outputs[$i]}"
+          bash "$ACTION_PATH/scripts/macos.sh" "${apps[$i]}" "${outputs[$i]}" "$helper_dir/window"
         done

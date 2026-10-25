@@ -63,7 +63,19 @@ jobs:
 
 Download the three `screenshot-*` artifacts from the workflow run.
 
-`app-names` and `output-files` also accept matching space-separated lists for capturing several applications. Paths are relative to the workspace and cannot contain spaces. `app-names` accepts executable paths without command-line arguments. Each application must create a visible window in its own process. Linux applications must support X11 and set `_NET_WM_PID`; Windows capture uses `PrintWindow`, which may leave incompatible apps blank.
+To capture several applications, list their executables in `app-names`. The optional `output-pattern` generates one path per executable. `{name}` is the executable filename without `.exe`, and `{os}` is `ubuntu`, `windows`, or `macos`:
+
+```yaml
+- uses: kojix2/window-screenshot-action@main
+  with:
+    os: ${{ matrix.os }}
+    app-names: basic_window basic_button basic_slider
+    output-pattern: screenshots/{name}-{os}.png
+```
+
+This creates `screenshots/basic_window-ubuntu.png`, `screenshots/basic_button-ubuntu.png`, and `screenshots/basic_slider-ubuntu.png` on Ubuntu; the other runners use their own OS suffix. Windows executables may be listed with `.exe`. If `output-pattern` is omitted, the default is `{name}.png`. For custom names, `output-files` still accepts a matching space-separated list and takes precedence over `output-pattern`. Output paths must be unique.
+
+Paths are relative to the workspace and cannot contain spaces. `app-names` accepts executable paths without command-line arguments. Each application must create a visible window in its own process. Linux applications must support X11 and set `_NET_WM_PID`; Windows capture uses `PrintWindow`, which may leave incompatible apps blank.
 
 ## Put screenshots in your README
 
@@ -109,7 +121,7 @@ This action's own [test workflow](.github/workflows/test.yml) produces these ima
 
 | Linux | Windows | macOS |
 | --- | --- | --- |
-| ![Linux window](https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/screenshot-ubuntu/first.png) | ![Windows window](https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/screenshot-windows/first.png) | ![macOS window](https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/screenshot-macos/first.png) |
+| ![Linux window](https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/screenshot-ubuntu/smoke-ubuntu.png) | ![Windows window](https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/screenshot-windows/smoke-windows.png) | ![macOS window](https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/screenshot-macos/smoke-macos.png) |
 
 ## License
 
