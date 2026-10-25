@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+/smoke
+/smoke2
+/smoke.exe
+/smoke2.exe
+/no-window
+/no-window.exe
+/overlay.pid
+/screenshots/
+/*.png
+/tmp/
