@@ -2,6 +2,7 @@ name: Test
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -11,7 +12,7 @@ permissions:
 jobs:
   capture:
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -30,70 +31,58 @@ jobs:
             app2: smoke2
     steps:
       - uses: actions/checkout@v7
+      - name: Run Unix regression tests
+        if: matrix.os != 'windows'
+        env:
+          BASH_BINARY: /bin/bash
+        run: python3 -m unittest discover -s tests -v
+      - name: Run Windows input and syntax tests
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: ./tests/test_windows.ps1
       - name: Prepare Linux test window
         if: matrix.os == 'ubuntu'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev xvfb xauth openbox wmctrl imagemagick
-          cat > smoke.c <<'C'
-          #include <gtk/gtk.h>
-          int main(int argc, char **argv) {
-            gtk_init(&argc, &argv);
-            GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-            gtk_window_set_title(GTK_WINDOW(window), "Screenshot smoke test");
-            gtk_window_set_default_size(GTK_WINDOW(window), 400, 300);
-            gtk_container_add(GTK_CONTAINER(window), gtk_label_new("Native window capture"));
-            g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
-            gtk_widget_show_all(window);
-            gtk_main();
-            return 0;
-          }
-          C
           read -r -a gtk_flags <<< "$(pkg-config --cflags --libs gtk+-3.0)"
-          cc smoke.c -o smoke "${gtk_flags[@]}"
+          cc tests/fixtures/window.c -o smoke "${gtk_flags[@]}"
+          cc tests/fixtures/no-window.c -o no-window
           cp smoke smoke2
       - name: Prepare Windows test window
         if: matrix.os == 'windows'
         shell: powershell
         run: |
-          $source = @'
-          using System;
-          using System.Windows.Forms;
-          class Smoke {
-            [STAThread] public static void Main(string[] args) {
-              var window = new Form { Text = "smoke.exe", Width = 400, Height = 300, BackColor = System.Drawing.Color.Lime };
-              if (args.Length > 0) {
-                window.TopMost = true;
-                window.WindowState = FormWindowState.Maximized;
-                window.BackColor = System.Drawing.Color.Magenta;
-              }
-              Application.Run(window);
-            }
-          }
-          '@
+          $source = Get-Content tests/fixtures/window.cs -Raw
           Add-Type -TypeDefinition $source -OutputAssembly "$PWD\smoke.exe" -OutputType WindowsApplication -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll
+          Add-Type -TypeDefinition 'class NoWindow { static void Main() {} }' -OutputAssembly "$PWD\no-window.exe" -OutputType ConsoleApplication
           Copy-Item smoke.exe smoke2.exe
           (Start-Process .\smoke.exe -ArgumentList overlay -PassThru).Id | Set-Content overlay.pid
       - name: Prepare macOS test window
         if: matrix.os == 'macos'
         run: |
-          cat > smoke.swift <<'SWIFT'
-          import AppKit
-          let app = NSApplication.shared
-          app.setActivationPolicy(.regular)
-          let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-          window.title = "Screenshot smoke test"
-          window.makeKeyAndOrderFront(nil)
-          app.activate(ignoringOtherApps: true)
-          app.run()
-          SWIFT
-          swiftc smoke.swift -o smoke
+          swiftc tests/fixtures/window.swift -o smoke
+          cc tests/fixtures/no-window.c -o no-window
           cp smoke smoke2
-      - uses: ./
+      - name: Capture multiple windows with multiline inputs
+        id: capture
+        uses: ./
         with:
           os: ${{ matrix.os }}
-          app-names: ${{ matrix.app }} ${{ matrix.app2 }}
+          app-names: |
+            ${{ matrix.app }}
+            ${{ matrix.app2 }}
           output-pattern: screenshots/{name}-{os}.png
+      - name: Verify action outputs
+        shell: bash
+        env:
+          FILES: ${{ steps.capture.outputs.files }}
+          COUNT: ${{ steps.capture.outputs.count }}
+          OS: ${{ matrix.os }}
+        run: |
+          test "$COUNT" = 2
+          expected=$(printf 'screenshots/smoke-%s.png\nscreenshots/smoke2-%s.png' "$OS" "$OS")
+          test "$FILES" = "$expected"
       - name: Verify explicit output filename remains supported
         uses: ./
         with:
@@ -124,6 +113,15 @@ jobs:
             }
             finally { $image.Dispose() }
           }
+      - name: Reject an application that creates no window
+        id: no_window
+        continue-on-error: true
+        uses: ./
+        with:
+          os: ${{ matrix.os }}
+          app-names: ${{ matrix.os == 'windows' && 'no-window.exe' || 'no-window' }}
+          output-files: no-window.png
+          window-timeout: '2'
       - name: Reject empty inputs
         id: empty
         continue-on-error: true
@@ -172,7 +170,8 @@ jobs:
           EMPTY_OUTCOME: ${{ steps.empty.outcome }}
           DUPLICATE_OUTCOME: ${{ steps.duplicate.outcome }}
           UNSUPPORTED_OUTCOME: ${{ steps.unsupported.outcome }}
-        run: test "$EMPTY_OUTCOME" = failure && test "$DUPLICATE_OUTCOME" = failure && test "$UNSUPPORTED_OUTCOME" = failure
+          NO_WINDOW_OUTCOME: ${{ steps.no_window.outcome }}
+        run: test "$EMPTY_OUTCOME" = failure && test "$DUPLICATE_OUTCOME" = failure && test "$UNSUPPORTED_OUTCOME" = failure && test "$NO_WINDOW_OUTCOME" = failure
       - name: Stop Windows overlay
         if: always() && matrix.os == 'windows'
         shell: pwsh
@@ -189,7 +188,7 @@ jobs:
 
   publish-screenshots:
     needs: capture
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     concurrency: screenshots
     permissions:
