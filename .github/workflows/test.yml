@@ -11,6 +11,7 @@ permissions:
 jobs:
   capture:
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -30,9 +31,23 @@ jobs:
         if: matrix.os == 'ubuntu'
         run: |
           sudo apt-get update
-          sudo apt-get install -y x11-apps xvfb openbox wmctrl x11-utils imagemagick
-          printf '#!/bin/sh\nexec xmessage "Screenshot smoke test"\n' > smoke
-          chmod +x smoke
+          sudo apt-get install -y libgtk-3-dev xvfb xauth openbox wmctrl imagemagick
+          cat > smoke.c <<'C'
+          #include <gtk/gtk.h>
+          int main(int argc, char **argv) {
+            gtk_init(&argc, &argv);
+            GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+            gtk_window_set_title(GTK_WINDOW(window), "Screenshot smoke test");
+            gtk_window_set_default_size(GTK_WINDOW(window), 400, 300);
+            gtk_container_add(GTK_CONTAINER(window), gtk_label_new("Native window capture"));
+            g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+            gtk_widget_show_all(window);
+            gtk_main();
+            return 0;
+          }
+          C
+          read -r -a gtk_flags <<< "$(pkg-config --cflags --libs gtk+-3.0)"
+          cc smoke.c -o smoke "${gtk_flags[@]}"
       - name: Prepare Windows test window
         if: matrix.os == 'windows'
         shell: powershell
@@ -41,12 +56,19 @@ jobs:
           using System;
           using System.Windows.Forms;
           class Smoke {
-            [STAThread] public static void Main() {
-              Application.Run(new Form { Text = "Screenshot smoke test", Width = 400, Height = 300 });
+            [STAThread] public static void Main(string[] args) {
+              var window = new Form { Text = "smoke.exe", Width = 400, Height = 300, BackColor = System.Drawing.Color.Lime };
+              if (args.Length > 0) {
+                window.TopMost = true;
+                window.WindowState = FormWindowState.Maximized;
+                window.BackColor = System.Drawing.Color.Magenta;
+              }
+              Application.Run(window);
             }
           }
           '@
           Add-Type -TypeDefinition $source -OutputAssembly "$PWD\smoke.exe" -OutputType WindowsApplication -ReferencedAssemblies System.Windows.Forms.dll,System.Drawing.dll
+          (Start-Process .\smoke.exe -ArgumentList overlay -PassThru).Id | Set-Content overlay.pid
       - name: Prepare macOS test window
         if: matrix.os == 'macos'
         run: |
@@ -64,10 +86,82 @@ jobs:
       - uses: ./
         with:
           os: ${{ matrix.os }}
+          app-names: ${{ matrix.app }} ${{ matrix.app }}
+          output-files: screenshots/first.png screenshots/second.png
+      - name: Verify PNG dimensions
+        shell: bash
+        run: |
+          python - <<'PY'
+          import pathlib, struct
+          for name in ('first', 'second'):
+              data = pathlib.Path(f'screenshots/{name}.png').read_bytes()
+              assert data[:8] == b'\x89PNG\r\n\x1a\n'
+              width, height = struct.unpack('>II', data[16:24])
+              assert 300 <= width <= 900 and 200 <= height <= 800, (width, height)
+          PY
+      - name: Verify Windows capture excludes the overlapping window
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          foreach ($file in Get-ChildItem screenshots/*.png) {
+            $image = [System.Drawing.Bitmap]::new($file.FullName)
+            try {
+              $pixel = $image.GetPixel([int]($image.Width / 2), [int]($image.Height / 2))
+              if ($pixel.R -ne 0 -or $pixel.G -ne 255 -or $pixel.B -ne 0) { throw "Expected green app window, got $pixel" }
+            }
+            finally { $image.Dispose() }
+          }
+      - name: Reject empty inputs
+        id: empty
+        continue-on-error: true
+        uses: ./
+        with:
+          os: ${{ matrix.os }}
+          app-names: ''
+          output-files: ''
+      - name: Reject invalid output destination on Windows
+        if: matrix.os == 'windows'
+        id: invalid_output
+        continue-on-error: true
+        uses: ./
+        with:
+          os: windows
+          app-names: smoke.exe
+          output-files: screenshots/first.png/fail.png
+      - name: Verify Windows cleanup after failure
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          CAPTURE_OUTCOME: ${{ steps.invalid_output.outcome }}
+        run: |
+          if ($env:CAPTURE_OUTCOME -ne 'failure') { throw 'Expected capture failure' }
+          $remaining = @(Get-Process smoke -ErrorAction SilentlyContinue | Where-Object Id -ne (Get-Content overlay.pid))
+          if ($remaining.Count -ne 0) { throw 'Application was left running after capture' }
+      - name: Reject unsupported operating system
+        id: unsupported
+        continue-on-error: true
+        uses: ./
+        with:
+          os: unsupported
           app-names: ${{ matrix.app }}
-          output-files: smoke-${{ matrix.os }}.png
+          output-files: unexpected.png
+      - name: Verify rejected inputs
+        shell: bash
+        env:
+          EMPTY_OUTCOME: ${{ steps.empty.outcome }}
+          UNSUPPORTED_OUTCOME: ${{ steps.unsupported.outcome }}
+        run: test "$EMPTY_OUTCOME" = failure && test "$UNSUPPORTED_OUTCOME" = failure
+      - name: Stop Windows overlay
+        if: always() && matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          if (Test-Path overlay.pid) {
+            Stop-Process -Id (Get-Content overlay.pid) -Force -ErrorAction SilentlyContinue
+          }
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: screenshot-${{ matrix.os }}
-          path: smoke-${{ matrix.os }}.png
+          path: screenshots/*.png
           if-no-files-found: error

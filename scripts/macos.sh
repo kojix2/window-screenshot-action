@@ -6,16 +6,18 @@ OUTPUT_FILE="${2:?output filename is required}"
 
 echo "Starting macOS window screenshot process for $APP_NAME"
 
-# Launch the application (assume executable name = process name)
+HELPER_DIR=$(mktemp -d)
+APP_PID=
+trap 'if [ -n "$APP_PID" ]; then kill "$APP_PID" 2>/dev/null || true; fi; rm -rf "$HELPER_DIR"' EXIT
+
+# Launch the application directly so its PID owns the window.
 echo "Launching application: ./$APP_NAME"
 "./$APP_NAME" &
 APP_PID=$!
-trap 'kill "$APP_PID" 2>/dev/null || true' EXIT
 echo "Application launched with PID: $APP_PID"
 
 # Find the on-screen window id used by screencapture -l.
-if [ ! -x get_cg_window_info ]; then
-  cat > get_cg_window_info.swift <<'SWIFT'
+cat > "$HELPER_DIR/window.swift" <<'SWIFT'
 import CoreGraphics
 import Foundation
 
@@ -96,18 +98,18 @@ print("ERROR: CoreGraphics window not found")
 exit(1)
 SWIFT
 
-  swiftc get_cg_window_info.swift -o get_cg_window_info
-fi
+swiftc "$HELPER_DIR/window.swift" -o "$HELPER_DIR/window"
 
 echo "Waiting for window to appear..."
-WINDOW_ID=$(./get_cg_window_info "$APP_PID") || {
+WINDOW_ID=$("$HELPER_DIR/window" "$APP_PID") || {
   echo "$WINDOW_ID"
   exit 1
 }
 echo "Window id: $WINDOW_ID"
 echo "Capturing with screencapture -l $WINDOW_ID -> $OUTPUT_FILE"
 mkdir -p "$(dirname "$OUTPUT_FILE")"
-screencapture -x -t png -l"$WINDOW_ID" "$OUTPUT_FILE"
-ls -la "$OUTPUT_FILE"
+sleep 1
+screencapture -x -o -t png -l"$WINDOW_ID" "$OUTPUT_FILE"
+test -s "$OUTPUT_FILE"
 
 echo "macOS window screenshot process completed successfully"

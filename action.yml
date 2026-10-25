@@ -15,6 +15,16 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Validate operating system
+      shell: bash
+      env:
+        REQUESTED_OS: ${{ inputs.os }}
+      run: |
+        case "$RUNNER_OS:$REQUESTED_OS" in
+          Linux:ubuntu|Windows:windows|macOS:macos) ;;
+          *) echo "Unsupported runner/os combination: $RUNNER_OS/$REQUESTED_OS" >&2; exit 1 ;;
+        esac
+
     - name: Capture on Linux
       if: inputs.os == 'ubuntu'
       shell: bash
@@ -23,22 +33,24 @@ runs:
         APP_NAMES: ${{ inputs.app-names }}
         OUTPUT_FILES: ${{ inputs.output-files }}
       run: |
+        xvfb-run -a -s '-screen 0 1280x800x24' bash <<'BASH'
         set -euo pipefail
-        export DISPLAY=:99 NO_AT_BRIDGE=1
-        Xvfb :99 -screen 0 1280x800x24 -ac &
-        xvfb_pid=$!
-        wm_pid=
-        trap 'kill "$wm_pid" "$xvfb_pid" 2>/dev/null || true' EXIT
-        sleep 2
+        export NO_AT_BRIDGE=1 GDK_BACKEND=x11
         openbox &
         wm_pid=$!
+        trap 'kill "$wm_pid" 2>/dev/null || true; wait "$wm_pid" 2>/dev/null || true' EXIT
         sleep 2
+        kill -0 "$wm_pid"
         read -r -a apps <<< "$APP_NAMES"
         read -r -a outputs <<< "$OUTPUT_FILES"
-        [ "${#apps[@]}" -gt 0 ] && [ "${#apps[@]}" -eq "${#outputs[@]}" ]
+        if [ "${#apps[@]}" -eq 0 ] || [ "${#apps[@]}" -ne "${#outputs[@]}" ]; then
+          echo 'app-names and output-files must be nonempty and have the same length' >&2
+          exit 1
+        fi
         for i in "${!apps[@]}"; do
           bash "$ACTION_PATH/scripts/linux.sh" "${apps[$i]}" "${outputs[$i]}"
         done
+        BASH
 
     - name: Capture on Windows
       if: inputs.os == 'windows'
@@ -66,7 +78,10 @@ runs:
         set -euo pipefail
         read -r -a apps <<< "$APP_NAMES"
         read -r -a outputs <<< "$OUTPUT_FILES"
-        [ "${#apps[@]}" -gt 0 ] && [ "${#apps[@]}" -eq "${#outputs[@]}" ]
+        if [ "${#apps[@]}" -eq 0 ] || [ "${#apps[@]}" -ne "${#outputs[@]}" ]; then
+          echo 'app-names and output-files must be nonempty and have the same length' >&2
+          exit 1
+        fi
         for i in "${!apps[@]}"; do
           bash "$ACTION_PATH/scripts/macos.sh" "${apps[$i]}" "${outputs[$i]}"
         done

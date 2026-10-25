@@ -9,18 +9,9 @@ trap 'kill "$pid" 2>/dev/null || true' EXIT
 
 window=
 for _ in {1..30}; do
-  pids=" $pid $(pgrep -P "$pid" 2>/dev/null | tr '\n' ' ' || true) "
-  window=$(wmctrl -lp 2>/dev/null | awk -v pids="$pids" '$3 ~ /^[0-9]+$/ && index(pids, " " $3 " ") { print $1; exit }' || true)
-  if [ -z "$window" ]; then
-    for id in $(wmctrl -l 2>/dev/null | awk '{print $1}'); do
-      owner=$(xprop -id "$id" _NET_WM_PID 2>/dev/null | awk '{print $3}' || true)
-      if [ -n "$owner" ] && [[ "$pids" == *" $owner "* ]]; then
-        window=$id
-        break
-      fi
-    done
-  fi
+  window=$(wmctrl -lp | awk -v pid="$pid" '$3 == pid && !found++ { print $1 }')
   [ -n "$window" ] && break
+  kill -0 "$pid" 2>/dev/null || break
   sleep 0.5
 done
 
@@ -32,5 +23,5 @@ fi
 wmctrl -i -a "$window" || true
 sleep 1
 mkdir -p "$(dirname "$output")"
-import -frame -window "$window" "$output"
+import -frame -window "$window" "png:$output"
 test -s "$output"

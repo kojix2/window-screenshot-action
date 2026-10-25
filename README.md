@@ -11,7 +11,7 @@ steps:
   - uses: actions/checkout@v7
   - name: Install Linux screenshot tools
     if: runner.os == 'Linux'
-    run: sudo apt-get update && sudo apt-get install -y xvfb openbox wmctrl x11-utils imagemagick
+    run: sudo apt-get update && sudo apt-get install -y xvfb xauth openbox wmctrl imagemagick
   - uses: kojix2/window-screenshot-action@v1
     with:
       os: ubuntu # windows or macos on those runners
@@ -23,9 +23,11 @@ steps:
       path: my-app.png
 ```
 
-`app-names` and `output-files` are space-separated lists of equal length. Each executable path is relative to the job's working directory and must contain no spaces. The action starts each executable, waits for a visible window, captures that window, then stops the process. Applications should not require command-line arguments. Output paths may include directories.
+`app-names` and `output-files` are nonempty, space-separated lists of equal length. Paths are relative to the workspace and must contain no whitespace. Output paths may include directories. The action starts each executable directly, waits for a visible window owned by that process, captures one window, then stops the process. Applications should not require command-line arguments or launch their GUI in another process.
 
-On Linux, capture uses Xvfb, Openbox, `wmctrl`, `xprop`, and ImageMagick. On macOS, it uses CoreGraphics and `screencapture`; the hosted runner provides Swift. On Windows, it uses Win32 and PowerShell. Build the application for the runner's OS before invoking this action.
+On Linux, capture uses a private Xvfb display, Openbox, `wmctrl`, and ImageMagick. Applications must support X11 and expose `_NET_WM_PID` (GTK applications do). On macOS, it uses CoreGraphics and `screencapture`; the hosted runner provides Swift. On Windows, it uses Win32 `PrintWindow` and PowerShell, so overlapping windows are excluded; applications whose rendering is incompatible with `PrintWindow` may produce incomplete images. Build the application for the runner's OS before invoking this action.
+
+The tests launch small GTK, WinForms, and AppKit applications and capture each twice. Windows also checks that an overlapping window does not appear in the image. Real capture on all three GitHub-hosted runners should pass before creating the `v1` tag.
 
 ## License
 
