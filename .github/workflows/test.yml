@@ -148,7 +148,7 @@ jobs:
         with:
           os: windows
           app-names: smoke.exe
-          output-files: screenshots/first.png/fail.png
+          output-files: screenshots/explicit.png/fail.png
       - name: Verify Windows cleanup after failure
         if: matrix.os == 'windows'
         shell: pwsh
