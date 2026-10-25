@@ -125,6 +125,10 @@ class Workspace(unittest.TestCase):
         self.executable('app', app or '#!/bin/sh\necho $$ > app.pid\nexec sleep 30\n')
         self.executable('fakebin/wmctrl', '''#!/bin/sh
 if [ "$1" = -lp ]; then
+  if [ "$FAKE_MODE" = transient ] && [ ! -f wmctrl-retried ]; then
+    touch wmctrl-retried
+    exit 1
+  fi
   if [ "$FAKE_MODE" != timeout ] && [ -f app.pid ]; then
     printf '0x123 0 %s host A window with spaces\n' "$(cat app.pid)"
   fi
@@ -153,6 +157,13 @@ printf 'fresh PNG fixture' > "${last#png:}"
         result = self.capture()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.cwd / 'shots/result.png').read_text(), 'fresh PNG fixture')
+        self.assert_stopped()
+
+    def test_retries_transient_window_list_failure(self):
+        self.prepare_capture('transient')
+        result = self.capture()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.cwd / 'wmctrl-retried').exists())
         self.assert_stopped()
 
     def test_failure_preserves_existing_image_and_cleans_up(self):

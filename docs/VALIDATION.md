@@ -5,7 +5,7 @@ The implementation was integrated from the supplied reference project on
 
 | Check | Result |
 | --- | --- |
-| Python regression suite | 19 tests passed, including input validation, process cleanup, and simulated Linux/macOS captures. |
+| Python regression suite | 20 tests passed, including input validation, process cleanup, and simulated Linux/macOS captures. |
 | Bash syntax | All `scripts/*.sh` passed `bash -n`. |
 | YAML parsing | `action.yml` and all `.github/*.yml` files parsed with PyYAML. |
 | Action metadata | Composite runtime, declared outputs, and step shells checked. |

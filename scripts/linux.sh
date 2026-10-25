@@ -23,7 +23,9 @@ window=
 # wmctrl -lp lists windows with their owner PIDs; titles are never evaluated.
 deadline=$((SECONDS + timeout))
 while [ "$SECONDS" -lt "$deadline" ]; do
-  window=$(wmctrl -lp | awk -v pid="$pid" '$3 == pid && !found++ { print $1 }')
+  if ! window=$(wmctrl -lp 2>/dev/null | awk -v pid="$pid" '$3 == pid && !found++ { print $1 }'); then
+    window=
+  fi
   [ -n "$window" ] && break
   kill -0 "$pid" 2>/dev/null || break
   sleep 0.2
