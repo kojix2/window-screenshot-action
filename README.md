@@ -2,6 +2,16 @@
 
 Launch native applications and save **their windows**, not the whole desktop, as PNG files on Ubuntu, Windows, and macOS. The action fails if it cannot find the application's window. It does not upload images; use `actions/upload-artifact` for that.
 
+## Screenshots
+
+Captured by the [test workflow](.github/workflows/test.yml) on GitHub-hosted runners. Images are updated in the `screenshots` branch after successful runs on `main`.
+
+| Linux (GTK) | Windows (WinForms) | macOS (AppKit) |
+| --- | --- | --- |
+| <img src="https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/ubuntu.png" alt="GTK window on Linux" width="280"> | <img src="https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/windows.png" alt="WinForms window on Windows" width="280"> | <img src="https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/macos.png" alt="AppKit window on macOS" width="280"> |
+
+The green Windows background is used to check that an overlapping window is excluded from the capture.
+
 ## Usage
 
 Create and push a `v1` tag after publishing this repository to use the example below.

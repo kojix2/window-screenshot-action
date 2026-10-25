@@ -165,3 +165,35 @@ jobs:
           name: screenshot-${{ matrix.os }}
           path: screenshots/*.png
           if-no-files-found: error
+
+  publish-screenshots:
+    needs: capture
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency: screenshots
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: screenshot-*
+          path: ${{ runner.temp }}/screenshots
+      - name: Update screenshots branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git ls-remote --exit-code --heads origin screenshots > /dev/null; then
+            git fetch origin screenshots
+            git switch -C screenshots FETCH_HEAD
+          else
+            git switch --orphan screenshots
+          fi
+          for os in ubuntu windows macos; do
+            cp "$RUNNER_TEMP/screenshots/screenshot-$os/first.png" "$os.png"
+          done
+          git add ubuntu.png windows.png macos.png
+          if ! git diff --cached --quiet; then
+            git commit -m 'Update screenshots'
+            git push origin HEAD:screenshots
+          fi
