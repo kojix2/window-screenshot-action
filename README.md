@@ -90,40 +90,26 @@ Add this job under `jobs`, alongside `screenshot`:
       - uses: actions/download-artifact@v8
         with:
           pattern: screenshot-*
-          path: ${{ runner.temp }}/screenshots
-          merge-multiple: true
-      - run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          if git ls-remote --exit-code --heads origin screenshots > /dev/null; then
-            git fetch origin screenshots
-            git switch -C screenshots FETCH_HEAD
-          else
-            git switch --orphan screenshots
-          fi
-          for os in ubuntu windows macos; do
-            cp "$RUNNER_TEMP/screenshots/screenshot-$os.png" "$os.png"
-          done
-          git add ubuntu.png windows.png macos.png
-          if ! git diff --cached --quiet; then
-            git commit -m 'Update screenshots'
-            git push origin HEAD:screenshots
-          fi
+          path: screenshots
+      - uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: screenshots
+          folder: screenshots
 ```
 
-After the first successful push, put these links in your README and replace `OWNER/REPO`:
+After the first successful push, put these links in your README and replace `OWNER/REPO`. GitHub Pages does not need to be enabled.
 
 ```markdown
-![Ubuntu](https://raw.githubusercontent.com/OWNER/REPO/screenshots/ubuntu.png)
-![Windows](https://raw.githubusercontent.com/OWNER/REPO/screenshots/windows.png)
-![macOS](https://raw.githubusercontent.com/OWNER/REPO/screenshots/macos.png)
+![Ubuntu](https://raw.githubusercontent.com/OWNER/REPO/screenshots/screenshot-ubuntu/screenshot-ubuntu.png)
+![Windows](https://raw.githubusercontent.com/OWNER/REPO/screenshots/screenshot-windows/screenshot-windows.png)
+![macOS](https://raw.githubusercontent.com/OWNER/REPO/screenshots/screenshot-macos/screenshot-macos.png)
 ```
 
 This action's own [test workflow](.github/workflows/test.yml) produces these images:
 
 | Linux | Windows | macOS |
 | --- | --- | --- |
-| ![Linux window](https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/ubuntu.png) | ![Windows window](https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/windows.png) | ![macOS window](https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/macos.png) |
+| ![Linux window](https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/screenshot-ubuntu/first.png) | ![Windows window](https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/screenshot-windows/first.png) | ![macOS window](https://raw.githubusercontent.com/kojix2/window-screenshot-action/screenshots/screenshot-macos/first.png) |
 
 ## License
 
