@@ -4,7 +4,7 @@ Launch a native GUI application and save its window as a PNG on Linux, Windows, 
 
 ## Use
 
-Replace the marked comment with a step that builds or unpacks `./my-app`:
+Replace the marked comment with a build step that creates `my-app` (`my-app.exe` on Windows) in the workspace:
 
 ```yaml
 name: Screenshot
@@ -12,25 +12,30 @@ on: workflow_dispatch
 
 jobs:
   screenshot:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { runner: ubuntu-latest, os: ubuntu, app: my-app }
+          - { runner: windows-latest, os: windows, app: my-app.exe }
+          - { runner: macos-latest, os: macos, app: my-app }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
-      - run: sudo apt-get update && sudo apt-get install -y xvfb xauth openbox wmctrl imagemagick
-      # Build or unpack ./my-app here.
+      - if: matrix.os == 'ubuntu'
+        run: sudo apt-get update && sudo apt-get install -y xvfb xauth openbox wmctrl imagemagick
+      # Build or unpack the executable for this runner here.
       - uses: kojix2/window-screenshot-action@main
         with:
-          os: ubuntu
-          app-names: my-app
-          output-files: screenshot.png
+          os: ${{ matrix.os }}
+          app-names: ${{ matrix.app }}
+          output-files: screenshot-${{ matrix.os }}.png
       - uses: actions/upload-artifact@v7
         with:
-          name: screenshot
-          path: screenshot.png
+          name: screenshot-${{ matrix.os }}
+          path: screenshot-${{ matrix.os }}.png
 ```
 
-Download the `screenshot` artifact from the workflow run.
-
-For Windows, use `windows-latest`, `os: windows`, and an `.exe` executable. For macOS, use `macos-latest` and `os: macos`. Only Linux needs the install step above.
+Download the three `screenshot-*` artifacts from the workflow run.
 
 `app-names` and `output-files` accept matching space-separated lists for capturing several applications. Paths are relative to the workspace and cannot contain spaces. Do not include command-line arguments. Each application must create a visible window in its own process. Linux applications must support X11 and set `_NET_WM_PID`. Windows capture uses `PrintWindow`, which may leave incompatible apps blank. The action fails if it cannot find a window.
 
