@@ -21,7 +21,9 @@ temp_dir=$(mktemp -d "./$(dirname "$output")/.window-screenshot.XXXXXX")
 pid=$!
 window=
 # wmctrl -lp lists windows with their owner PIDs; titles are never evaluated.
-deadline=$((SECONDS + timeout))
+# SECONDS has one-second precision; include its current partial second so the
+# requested wait is not shortened when discovery starts just before a tick.
+deadline=$((SECONDS + timeout + 1))
 while [ "$SECONDS" -lt "$deadline" ]; do
   if ! window=$(wmctrl -lp 2>/dev/null | awk -v pid="$pid" '$3 == pid && !found++ { print $1 }'); then
     window=

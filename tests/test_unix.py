@@ -161,6 +161,7 @@ printf 'fresh PNG fixture' > "${last#png:}"
 
     def test_retries_transient_window_list_failure(self):
         self.prepare_capture('transient')
+        self.env['WINDOW_TIMEOUT'] = '3'
         result = self.capture()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.cwd / 'wmctrl-retried').exists())
